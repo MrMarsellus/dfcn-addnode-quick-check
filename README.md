@@ -1,1 +1,2 @@
-# dfcn-addnode-quick-check.sh
+README short description:
+DeFCoN Addnode Quick Checker is a lightweight helper script that lets users paste candidate addnodes directly into the terminal, verifies that the local VPS node has reached a trusted reference block height, and then checks whether each addnode is reachable and can be accepted as a peer. Nodes that pass the checks are printed as GOOD: IP:PORT so they can be copied directly into a trusted addnode list.
