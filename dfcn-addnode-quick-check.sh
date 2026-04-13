@@ -5,17 +5,38 @@ CLI="/usr/local/bin/defcon-cli"
 DATADIR="/home/defcon/.defcon"
 CONF="/home/defcon/.defcon/defcon.conf"
 
+# Max seconds for low-level TCP connect check (per attempt)
 MAX_SECONDS=5
+# Sleep after addnode onetry before inspecting getpeerinfo
 PEER_SLEEP=3
+# How many test rounds per node
 TEST_ROUNDS=3
+# Minimum rounds that must pass for a node to be considered trusted
 MIN_SUCCESS_ROUNDS=2
+# Allowed height difference between local and peer
 MAX_HEIGHT_DIFF=2
+# Default DeFCoN masternode port
 DEFAULT_PORT="8192"
 
+# Reward age factor:
+# max_reward_age = ENABLED_MN_COUNT * REWARD_AGE_FACTOR
 REWARD_AGE_FACTOR="3"
+
+# If set to 1, ANY revived node is rejected.
+# If set to 0, revived nodes are allowed, but see MIN_REVIVED_AGE_BLOCKS below.
 STRICT_REVIVED="0"
+
+# If set to 1, nodes with lastPaidHeight = 0 are rejected.
 STRICT_LASTPAID_ZERO="1"
+
+# Maximum allowed age (seconds) of lastOutboundSuccessElapsed
+# (older values indicate potentially stale / unhealthy peers)
 MAX_OUTBOUND_SUCCESS_ELAPSED="21600"
+
+# Minimum block age for revived masternodes:
+# nodes revived more recently than this many blocks are rejected.
+# This allows old, stable revivals but filters very recent revivals.
+MIN_REVIVED_AGE_BLOCKS="5000"
 
 run_cli() {
   "$CLI" -datadir="$DATADIR" -conf="$CONF" "$@"
@@ -241,7 +262,7 @@ check_protx_pose_and_health() {
   local enabled_count="$2"
   local local_height="$3"
   local match penalty ban_height revived_height last_paid_height outbound_success_elapsed revocation_reason
-  local max_reward_age delta_blocks
+  local max_reward_age delta_blocks revived_age
 
   match="$(get_protx_match "$node")"
 
@@ -279,12 +300,27 @@ check_protx_pose_and_health() {
     return 1
   fi
 
+  # Revived masternodes:
+  # - STRICT_REVIVED=1 → reject any revival
+  # - STRICT_REVIVED=0 → only reject if revival is too recent (younger than MIN_REVIVED_AGE_BLOCKS)
   if [[ "$revived_height" != "-1" && "$revived_height" != "0" ]]; then
     if (( STRICT_REVIVED == 1 )); then
-      echo "  - ProTx revived check: FAILED (node was revived before)"
+      echo "  - ProTx revived check: FAILED (node was revived before - strict mode)"
       return 1
     else
-      echo "  - ProTx revived note: node was revived before"
+      if is_number "$revived_height"; then
+        revived_age=$(( local_height - revived_height ))
+        echo "  - ProTx revived age blocks     : $revived_age"
+        echo "  - ProTx revived min age blocks : $MIN_REVIVED_AGE_BLOCKS"
+        if (( revived_age < MIN_REVIVED_AGE_BLOCKS )); then
+          echo "  - ProTx revived check: FAILED (revived too recently)"
+          return 1
+        else
+          echo "  - ProTx revived note: old revival accepted"
+        fi
+      else
+        echo "  - ProTx revived note: non-numeric revived height, ignoring"
+      fi
     fi
   fi
 
@@ -381,14 +417,16 @@ main() {
   echo "  5) Rejects nodes with PoSePenalty > 0 or PoSeBanHeight > 0"
   echo "  6) Rejects suspiciously old reward history"
   echo "  7) Rejects stale outbound-success metadata"
+  echo "  8) Filters out recently revived masternodes"
   echo
   echo "Config:"
-  echo "  TEST_ROUNDS=$TEST_ROUNDS"
-  echo "  MIN_SUCCESS_ROUNDS=$MIN_SUCCESS_ROUNDS"
-  echo "  REWARD_AGE_FACTOR=$REWARD_AGE_FACTOR"
-  echo "  STRICT_REVIVED=$STRICT_REVIVED"
-  echo "  STRICT_LASTPAID_ZERO=$STRICT_LASTPAID_ZERO"
-  echo "  MAX_OUTBOUND_SUCCESS_ELAPSED=$MAX_OUTBOUND_SUCCESS_ELAPSED"
+  echo "  TEST_ROUNDS=$TEST_ROUNDS            # how many test rounds per node"
+  echo "  MIN_SUCCESS_ROUNDS=$MIN_SUCCESS_ROUNDS # min rounds that must pass"
+  echo "  REWARD_AGE_FACTOR=$REWARD_AGE_FACTOR    # reward-age sensitivity"
+  echo "  STRICT_REVIVED=$STRICT_REVIVED          # 1=reject any revival, 0=allow old revivals"
+  echo "  MIN_REVIVED_AGE_BLOCKS=$MIN_REVIVED_AGE_BLOCKS  # min block age for accepted revivals"
+  echo "  STRICT_LASTPAID_ZERO=$STRICT_LASTPAID_ZERO      # 1=reject lastPaidHeight=0"
+  echo "  MAX_OUTBOUND_SUCCESS_ELAPSED=$MAX_OUTBOUND_SUCCESS_ELAPSED # max age of outbound success"
   echo
 
   check_local_reference_height
