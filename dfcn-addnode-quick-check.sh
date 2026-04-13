@@ -499,20 +499,20 @@ run_check_round() {
   echo "Rejected nodes:"
   if [[ -v rejected_nodes[0] ]]; then
     for node in "${rejected_nodes[@]}"; do
-      echo "  REJECT:  $node"
+      echo "$node"
     done
   else
-    echo "  (none)"
+    echo "(none)"
   fi
 
   echo
   echo "Trusted nodes:"
   if [[ -v trusted_nodes[0] ]]; then
     for node in "${trusted_nodes[@]}"; do
-      echo "  TRUSTED: $node"
+      echo "$node"
     done
   else
-    echo "  (none)"
+    echo "(none)"
   fi
 
   echo
