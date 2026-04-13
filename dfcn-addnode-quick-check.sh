@@ -1,16 +1,21 @@
 #!/usr/bin/env bash
-set -u
-set -o pipefail
+set -euo pipefail
 
 CLI="/usr/local/bin/defcon-cli"
 DATADIR="/home/defcon/.defcon"
 CONF="/home/defcon/.defcon/defcon.conf"
+
 MAX_SECONDS=5
 PEER_SLEEP=3
-TEST_ROUNDS=2
+TEST_ROUNDS=3
 MIN_SUCCESS_ROUNDS=2
 MAX_HEIGHT_DIFF=2
 DEFAULT_PORT="8192"
+
+REWARD_AGE_FACTOR="3"
+STRICT_REVIVED="0"
+STRICT_LASTPAID_ZERO="1"
+MAX_OUTBOUND_SUCCESS_ELAPSED="21600"
 
 run_cli() {
   "$CLI" -datadir="$DATADIR" -conf="$CONF" "$@"
@@ -45,10 +50,8 @@ normalize_node() {
 
 get_local_height() {
   local h
-  h="$(run_cli getblockcount 2>/dev/null || echo "")"
-  if ! is_number "$h"; then
-    return 1
-  fi
+  h="$(run_cli getblockcount 2>/dev/null || true)"
+  is_number "$h" || return 1
   echo "$h"
 }
 
@@ -58,8 +61,8 @@ check_local_reference_height() {
 
   echo "Reference block height check"
   echo "----------------------------"
-  echo "This script keeps your manual reference height check."
-  echo "Additionally, it will use masternodelist/protx data for PoSe filtering."
+  echo "This script keeps your manual reference block height check."
+  echo "It also adds stricter trusted-node filters using masternodelist and protx."
   echo
   echo "Please enter a trusted reference block height"
   echo "(for example from the official explorer or another trusted synced node)."
@@ -72,7 +75,7 @@ check_local_reference_height() {
     exit 1
   fi
 
-  local_height="$(get_local_height 2>/dev/null || echo "")"
+  local_height="$(get_local_height || echo "")"
 
   if ! is_number "$local_height"; then
     echo "Could not read local block height from defcon-cli."
@@ -84,7 +87,7 @@ check_local_reference_height() {
   echo "Reference block height : $reference_height"
   echo
 
-  if [ "$local_height" -lt "$reference_height" ]; then
+  if (( local_height < reference_height )); then
     echo "Your local node has not yet reached the reference block height."
     echo "Please wait until your VPS node is fully synced before testing addnodes."
     exit 1
@@ -104,41 +107,6 @@ get_peer_json_by_host() {
     )' | head -n 1
 }
 
-check_peer_connection() {
-  local node="$1"
-  local host="${node%:*}"
-  local local_height peer_json peer_height
-
-  local_height="$(get_local_height 2>/dev/null || echo "")"
-  if ! is_number "$local_height"; then
-    echo "  - Local height read: FAILED"
-    return 1
-  fi
-
-  run_cli addnode "$node" onetry >/dev/null 2>&1 || true
-  sleep "$PEER_SLEEP"
-
-  peer_json="$(get_peer_json_by_host "$host" 2>/dev/null || echo "")"
-  if [[ -z "$peer_json" ]]; then
-    echo "  - Peer check: FAILED (node did not appear in getpeerinfo)"
-    return 1
-  fi
-
-  peer_height="$(jq -r '.synced_headers // .startingheight // empty' <<< "$peer_json" 2>/dev/null)"
-  if is_number "$peer_height"; then
-    echo "  - Peer height: $peer_height"
-    if (( peer_height + MAX_HEIGHT_DIFF < local_height )); then
-      echo "  - Height plausibility: FAILED (peer lags too far behind local height $local_height)"
-      return 1
-    fi
-  else
-    echo "  - Peer height: UNKNOWN"
-  fi
-
-  echo "  - Peer check: OK"
-  return 0
-}
-
 check_tcp_port() {
   local host="$1"
   local port="$2"
@@ -152,19 +120,71 @@ check_tcp_port() {
   fi
 }
 
+check_peer_connection() {
+  local node="$1"
+  local host="${node%:*}"
+  local local_height peer_json peer_height pingtime
+
+  local_height="$(get_local_height || echo "")"
+  if ! is_number "$local_height"; then
+    echo "  - Local height read: FAILED"
+    return 1
+  fi
+
+  run_cli addnode "$node" onetry >/dev/null 2>&1 || true
+  sleep "$PEER_SLEEP"
+
+  peer_json="$(get_peer_json_by_host "$host" 2>/dev/null || true)"
+  if [[ -z "$peer_json" ]]; then
+    echo "  - Peer check: FAILED (node did not appear in getpeerinfo)"
+    return 1
+  fi
+
+  peer_height="$(jq -r '.synced_headers // .startingheight // .synced_blocks // empty' <<< "$peer_json" 2>/dev/null)"
+  pingtime="$(jq -r '.pingtime // empty' <<< "$peer_json" 2>/dev/null)"
+
+  if is_number "$peer_height"; then
+    echo "  - Peer height: $peer_height"
+    if (( peer_height + MAX_HEIGHT_DIFF < local_height )); then
+      echo "  - Height plausibility: FAILED (peer lags too far behind local height $local_height)"
+      return 1
+    fi
+  else
+    echo "  - Peer height: UNKNOWN"
+  fi
+
+  [[ -n "$pingtime" && "$pingtime" != "null" ]] && echo "  - Ping time: $pingtime"
+  echo "  - Peer check: OK"
+  return 0
+}
+
+get_enabled_count() {
+  local count
+  count="$(run_cli masternodelist status 2>/dev/null | grep -o 'ENABLED' | wc -l | tr -d ' ')"
+  is_number "$count" || return 1
+  echo "$count"
+}
+
+get_masternodelist_full_line() {
+  local node="$1"
+  run_cli masternodelist full "$node" 2>/dev/null \
+    | jq -r 'to_entries[]? | .value' 2>/dev/null \
+    | grep -F " $node" \
+    | head -n 1
+}
+
 check_masternodelist_status() {
   local node="$1"
-  local status_line
-  local status_word
+  local status_json status_word
 
-  status_line="$(run_cli masternodelist status "$node" 2>/dev/null || echo "")"
+  status_json="$(run_cli masternodelist status "$node" 2>/dev/null || true)"
 
-  if [[ -z "$status_line" || "$status_line" == "{}" ]]; then
+  if [[ -z "$status_json" || "$status_json" == "{}" ]]; then
     echo "  - Masternodelist status: UNKNOWN"
     return 2
   fi
 
-  status_word="$(echo "$status_line" | grep -Eo 'ENABLED|POSE_BANNED' | head -n 1)"
+  status_word="$(echo "$status_json" | grep -Eo 'ENABLED|POSE_BANNED' | head -n 1 || true)"
 
   if [[ "$status_word" == "POSE_BANNED" ]]; then
     echo "  - Masternodelist status: FAILED (POSE_BANNED)"
@@ -178,30 +198,71 @@ check_masternodelist_status() {
   fi
 }
 
-check_protx_pose() {
+check_masternodelist_full_heuristics() {
   local node="$1"
-  local protx_json match penalty ban_height revived_height
+  local full_line last_paid_block
 
-  protx_json="$(run_cli protx list registered true 2>/dev/null || echo "")"
-  if [[ -z "$protx_json" ]]; then
-    echo "  - ProTx lookup: UNKNOWN"
+  full_line="$(get_masternodelist_full_line "$node")"
+
+  if [[ -z "$full_line" ]]; then
+    echo "  - Masternodelist full: UNKNOWN"
     return 2
   fi
 
-  match="$(jq -c --arg node "$node" '.[] | select((.state.service // "") == $node)' <<< "$protx_json" 2>/dev/null | head -n 1)"
+  echo "  - Masternodelist full: $full_line"
+
+  if grep -q 'POSE_BANNED' <<< "$full_line"; then
+    echo "  - Masternodelist full check: FAILED (POSE_BANNED)"
+    return 1
+  fi
+
+  last_paid_block="$(awk '{print $(NF-1)}' <<< "$full_line" 2>/dev/null || true)"
+
+  if is_number "$last_paid_block"; then
+    echo "  - lastpaidblock (masternodelist full): $last_paid_block"
+    if (( STRICT_LASTPAID_ZERO == 1 )) && (( last_paid_block == 0 )); then
+      echo "  - Masternodelist reward heuristic: FAILED (lastpaidblock = 0)"
+      return 1
+    fi
+  fi
+
+  return 0
+}
+
+get_protx_match() {
+  local node="$1"
+  run_cli protx list registered true 2>/dev/null \
+    | jq -c --arg node "$node" '.[] | select((.state.service // "") == $node)' \
+    | head -n 1
+}
+
+check_protx_pose_and_health() {
+  local node="$1"
+  local enabled_count="$2"
+  local local_height="$3"
+  local match penalty ban_height revived_height last_paid_height outbound_success_elapsed revocation_reason
+  local max_reward_age delta_blocks
+
+  match="$(get_protx_match "$node")"
 
   if [[ -z "$match" ]]; then
     echo "  - ProTx lookup: UNKNOWN (service not found)"
     return 2
   fi
 
-  penalty="$(jq -r '.state.PoSePenalty // 0' <<< "$match" 2>/dev/null)"
-  ban_height="$(jq -r '.state.PoSeBanHeight // -1' <<< "$match" 2>/dev/null)"
-  revived_height="$(jq -r '.state.PoSeRevivedHeight // -1' <<< "$match" 2>/dev/null)"
+  penalty="$(jq -r '.state.PoSePenalty // 0' <<< "$match")"
+  ban_height="$(jq -r '.state.PoSeBanHeight // -1' <<< "$match")"
+  revived_height="$(jq -r '.state.PoSeRevivedHeight // -1' <<< "$match")"
+  last_paid_height="$(jq -r '.state.lastPaidHeight // 0' <<< "$match")"
+  outbound_success_elapsed="$(jq -r '.metaInfo.lastOutboundSuccessElapsed // 0' <<< "$match")"
+  revocation_reason="$(jq -r '.state.revocationReason // 0' <<< "$match")"
 
-  echo "  - ProTx PoSePenalty     : $penalty"
-  echo "  - ProTx PoSeBanHeight   : $ban_height"
-  echo "  - ProTx PoSeRevivedHeight: $revived_height"
+  echo "  - ProTx PoSePenalty            : $penalty"
+  echo "  - ProTx PoSeBanHeight          : $ban_height"
+  echo "  - ProTx PoSeRevivedHeight      : $revived_height"
+  echo "  - ProTx lastPaidHeight         : $last_paid_height"
+  echo "  - ProTx lastOutboundSuccessElapsed: $outbound_success_elapsed"
+  echo "  - ProTx revocationReason       : $revocation_reason"
 
   if is_number "$penalty" && (( penalty > 0 )); then
     echo "  - ProTx PoSe check: FAILED (PoSePenalty > 0)"
@@ -213,11 +274,45 @@ check_protx_pose() {
     return 1
   fi
 
-  if [[ "$revived_height" != "-1" && "$revived_height" != "0" ]]; then
-    echo "  - ProTx PoSe note: node was revived before"
+  if is_number "$revocation_reason" && (( revocation_reason > 0 )); then
+    echo "  - ProTx revocation check: FAILED (revocationReason > 0)"
+    return 1
   fi
 
-  echo "  - ProTx PoSe check: OK"
+  if [[ "$revived_height" != "-1" && "$revived_height" != "0" ]]; then
+    if (( STRICT_REVIVED == 1 )); then
+      echo "  - ProTx revived check: FAILED (node was revived before)"
+      return 1
+    else
+      echo "  - ProTx revived note: node was revived before"
+    fi
+  fi
+
+  if is_number "$last_paid_height"; then
+    if (( STRICT_LASTPAID_ZERO == 1 )) && (( last_paid_height == 0 )); then
+      echo "  - Reward age check: FAILED (lastPaidHeight = 0)"
+      return 1
+    fi
+
+    if (( last_paid_height > 0 )) && (( enabled_count > 0 )); then
+      delta_blocks=$(( local_height - last_paid_height ))
+      max_reward_age=$(( enabled_count * REWARD_AGE_FACTOR ))
+      echo "  - Reward age delta blocks      : $delta_blocks"
+      echo "  - Reward age max allowed       : $max_reward_age"
+
+      if (( delta_blocks > max_reward_age )); then
+        echo "  - Reward age check: FAILED (too many blocks since last payment)"
+        return 1
+      fi
+    fi
+  fi
+
+  if is_number "$outbound_success_elapsed" && (( outbound_success_elapsed > MAX_OUTBOUND_SUCCESS_ELAPSED )); then
+    echo "  - Outbound success age check: FAILED (too old)"
+    return 1
+  fi
+
+  echo "  - ProTx health check: OK"
   return 0
 }
 
@@ -225,8 +320,24 @@ test_node_once() {
   local node="$1"
   local host="${node%:*}"
   local port="${node##*:}"
+  local enabled_count local_height
 
   echo "Testing $node"
+
+  local_height="$(get_local_height || echo "")"
+  enabled_count="$(get_enabled_count || echo "0")"
+
+  if ! is_number "$local_height"; then
+    echo "  - Local height read: FAILED"
+    return 1
+  fi
+
+  if ! is_number "$enabled_count"; then
+    enabled_count=0
+  fi
+
+  echo "  - Local height: $local_height"
+  echo "  - ENABLED masternodes: $enabled_count"
 
   check_tcp_port "$host" "$port" || return 1
   check_peer_connection "$node" || return 1
@@ -237,7 +348,13 @@ test_node_once() {
     0|2) ;;
   esac
 
-  check_protx_pose "$node"
+  check_masternodelist_full_heuristics "$node"
+  case $? in
+    1) return 1 ;;
+    0|2) ;;
+  esac
+
+  check_protx_pose_and_health "$node" "$enabled_count" "$local_height"
   case $? in
     1) return 1 ;;
     0|2) ;;
@@ -249,28 +366,35 @@ test_node_once() {
 main() {
   need_cmd bash
   need_cmd grep
+  need_cmd awk
   need_cmd jq
   need_cmd timeout
+  need_cmd wc
 
-  echo "DeFCoN Trusted Addnode Checker"
-  echo "------------------------------"
+  echo "DeFCoN Strict Trusted Addnode Checker"
+  echo "-------------------------------------"
   echo "This script:"
   echo "  1) Keeps your manual reference block height check"
-  echo "  2) Tests candidate addnodes for reachability"
-  echo "  3) Checks whether they appear as peers"
-  echo "  4) Uses masternodelist/protx to reject PoSe-problem nodes"
+  echo "  2) Tests TCP reachability on port 8192"
+  echo "  3) Verifies peer visibility in getpeerinfo"
+  echo "  4) Rejects POSE_BANNED nodes"
+  echo "  5) Rejects nodes with PoSePenalty > 0 or PoSeBanHeight > 0"
+  echo "  6) Rejects suspiciously old reward history"
+  echo "  7) Rejects stale outbound-success metadata"
   echo
-  echo "Expected addnode format:"
-  echo "  IP:PORT"
-  echo "  HOSTNAME:PORT"
-  echo
-  echo "Default DeFCoN port: 8192"
+  echo "Config:"
+  echo "  TEST_ROUNDS=$TEST_ROUNDS"
+  echo "  MIN_SUCCESS_ROUNDS=$MIN_SUCCESS_ROUNDS"
+  echo "  REWARD_AGE_FACTOR=$REWARD_AGE_FACTOR"
+  echo "  STRICT_REVIVED=$STRICT_REVIVED"
+  echo "  STRICT_LASTPAID_ZERO=$STRICT_LASTPAID_ZERO"
+  echo "  MAX_OUTBOUND_SUCCESS_ELAPSED=$MAX_OUTBOUND_SUCCESS_ELAPSED"
   echo
 
   check_local_reference_height
 
   echo "Paste your addnodes now."
-  echo "When you are done, press ENTER on an empty line to start the checks."
+  echo "One addnode per line. Empty line starts the checks."
   echo
 
   local line node round success
@@ -288,7 +412,7 @@ main() {
 
     node="$(normalize_node "$line")"
 
-    if ! echo "$node" | grep -Eq '^[a-zA-Z0-9._-]+:[0-9]+$'; then
+    if ! [[ "$node" =~ ^[a-zA-Z0-9._-]+:[0-9]+$ ]]; then
       echo "Skipping invalid format: $node"
       continue
     fi
@@ -324,5 +448,4 @@ main() {
   echo "Done."
   echo "Copy all lines starting with 'TRUSTED:' as your trusted addnodes."
 }
-
 main "$@"
