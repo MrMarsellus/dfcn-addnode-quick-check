@@ -76,6 +76,19 @@ get_local_height() {
   echo "$h"
 }
 
+ask_restart() {
+  local answer
+  while true; do
+    echo
+    read -r -p "Do you want to run another check round? (yes/no): " answer
+    case "${answer,,}" in
+      y|yes) return 0 ;;
+      n|no)  return 1 ;;
+      *) echo "Please answer yes or no." ;;
+    esac
+  done
+}
+
 check_local_reference_height() {
   local reference_height
   local local_height
@@ -399,14 +412,7 @@ test_node_once() {
   return 0
 }
 
-main() {
-  need_cmd bash
-  need_cmd grep
-  need_cmd awk
-  need_cmd jq
-  need_cmd timeout
-  need_cmd wc
-
+run_check_round() {
   echo "DeFCoN Strict Trusted Addnode Checker"
   echo "-------------------------------------"
   echo "This script:"
@@ -486,4 +492,22 @@ main() {
   echo "Done."
   echo "Copy all lines starting with 'TRUSTED:' as your trusted addnodes."
 }
+
+main() {
+  need_cmd bash
+  need_cmd grep
+  need_cmd awk
+  need_cmd jq
+  need_cmd timeout
+  need_cmd wc
+
+  while true; do
+    run_check_round
+    if ! ask_restart; then
+      echo "Exiting."
+      break
+    fi
+  done
+}
+
 main "$@"
