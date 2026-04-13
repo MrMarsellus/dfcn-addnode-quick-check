@@ -96,10 +96,10 @@ check_local_reference_height() {
   echo "Reference block height check"
   echo "----------------------------"
   echo "This script keeps your manual reference block height check."
-  echo "It also adds stricter trusted-node filters using masternodelist and protx."
+  echo "It also adds stricter -node filters using masternodelist and protx."
   echo
-  echo "Please enter a trusted reference block height"
-  echo "(for example from the official explorer or another trusted synced node)."
+  echo "Please enter a  reference block height"
+  echo "(for example from the official explorer or another  synced node)."
   echo
 
   read -r -p "Reference block height: " reference_height
@@ -413,7 +413,7 @@ test_node_once() {
 }
 
 run_check_round() {
-  echo "DeFCoN Strict Trusted Addnode Checker"
+  echo "DeFCoN Strict  Addnode Checker"
   echo "-------------------------------------"
   echo "This script:"
   echo "  1) Keeps your manual reference block height check"
@@ -443,7 +443,7 @@ run_check_round() {
 
   local line node round success
   local -a nodes=()
-  local -a trusted_nodes=()
+  local -a _nodes=()
   local -a rejected_nodes=()
 
   while true; do
@@ -482,10 +482,10 @@ run_check_round() {
     done
 
     if (( success >= MIN_SUCCESS_ROUNDS )); then
-      echo "TRUSTED: $node"
+      echo "$node"
       trusted_nodes+=("$node")
     else
-      echo "REJECT:  $node"
+      echo "$node"
       rejected_nodes+=("$node")
     fi
 
