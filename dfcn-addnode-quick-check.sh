@@ -443,6 +443,8 @@ run_check_round() {
 
   local line node round success
   local -a nodes=()
+  local -a trusted_nodes=()
+  local -a rejected_nodes=()
 
   while true; do
     if ! read -r line; then
@@ -481,8 +483,10 @@ run_check_round() {
 
     if (( success >= MIN_SUCCESS_ROUNDS )); then
       echo "TRUSTED: $node"
+      trusted_nodes+=("$node")
     else
       echo "REJECT:  $node"
+      rejected_nodes+=("$node")
     fi
 
     echo "------------------------------------------------------------"
@@ -490,7 +494,29 @@ run_check_round() {
 
   echo
   echo "Done."
-  echo "Copy all lines starting with 'TRUSTED:' as your trusted addnodes."
+  echo
+
+  echo "Rejected nodes:"
+  if (( ${#rejected_nodes[@]} == 0 )); then
+    echo "  (none)"
+  else
+    for node in "${rejected_nodes[@]}"; do
+      echo "  REJECT:  $node"
+    done
+  fi
+
+  echo
+  echo "Trusted nodes:"
+  if (( ${#trusted_nodes[@]} == 0 )); then
+    echo "  (none)"
+  else
+    for node in "${trusted_nodes[@]}"; do
+      echo "  TRUSTED: $node"
+    done
+  fi
+
+  echo
+  echo "Copy all lines under 'Trusted nodes:' as your trusted addnodes."
 }
 
 main() {
