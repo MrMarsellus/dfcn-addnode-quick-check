@@ -14,7 +14,7 @@ TEST_ROUNDS=3
 # Minimum rounds that must pass for a node to be considered trusted
 MIN_SUCCESS_ROUNDS=2
 # Allowed height difference between local and peer
-MAX_HEIGHT_DIFF=2
+MAX_HEIGHT_DIFF=5
 # Default DeFCoN masternode port
 DEFAULT_PORT="8192"
 
