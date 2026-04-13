@@ -7,7 +7,7 @@ DeFCoN Addnode Quick Checker is a lightweight helper script that lets you paste 
 Run this on your VPS:
 
 ```bash
-sudo -u defcon bash -lc 'cd /home/defcon && wget -qO dfcn-addnode-quick-check.sh https://raw.githubusercontent.com/MrMarsellus/dfcn-addnode-quick-check/refs/heads/main/dfcn-addnode-quick-check.sh && chmod +x dfcn-addnode-quick-check.sh && ./dfcn-addnode-quick-check.sh'
+sudo -u defcon bash -lc 'cd /home/defcon && rm -f dfcn-addnode-quick-check.sh && wget --no-cache -qO dfcn-addnode-quick-check.sh https://raw.githubusercontent.com/MrMarsellus/dfcn-addnode-quick-check/refs/heads/main/dfcn-addnode-quick-check.sh && chmod +x dfcn-addnode-quick-check.sh && ./dfcn-addnode-quick-check.sh'
 ```
 
 Requirements:
