@@ -443,7 +443,7 @@ run_check_round() {
 
   local line node round success
   local -a nodes=()
-  local -a _nodes=()
+  local -a trusted_nodes=()
   local -a rejected_nodes=()
 
   while true; do
@@ -497,22 +497,22 @@ run_check_round() {
   echo
 
   echo "Rejected nodes:"
-  if (( ${#rejected_nodes[@]} == 0 )); then
-    echo "(none)"
-  else
+  if [[ -v rejected_nodes[0] ]]; then
     for node in "${rejected_nodes[@]}"; do
-      echo "$node"
+      echo "  REJECT:  $node"
     done
+  else
+    echo "  (none)"
   fi
 
   echo
   echo "Trusted nodes:"
-  if (( ${#trusted_nodes[@]} == 0 )); then
-    echo "(none)"
-  else
+  if [[ -v trusted_nodes[0] ]]; then
     for node in "${trusted_nodes[@]}"; do
-      echo "$node"
+      echo "  TRUSTED: $node"
     done
+  else
+    echo "  (none)"
   fi
 
   echo
