@@ -1,0 +1,1 @@
+# dfcn-addnode-quick-check.sh
