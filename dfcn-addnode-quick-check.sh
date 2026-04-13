@@ -482,10 +482,10 @@ run_check_round() {
     done
 
     if (( success >= MIN_SUCCESS_ROUNDS )); then
-      echo "$node"
+      echo "TRUSTED: $node"
       trusted_nodes+=("$node")
     else
-      echo "$node"
+      echo "REJECT: $node"
       rejected_nodes+=("$node")
     fi
 
@@ -498,20 +498,20 @@ run_check_round() {
 
   echo "Rejected nodes:"
   if (( ${#rejected_nodes[@]} == 0 )); then
-    echo "  (none)"
+    echo "(none)"
   else
     for node in "${rejected_nodes[@]}"; do
-      echo "  REJECT:  $node"
+      echo "$node"
     done
   fi
 
   echo
   echo "Trusted nodes:"
   if (( ${#trusted_nodes[@]} == 0 )); then
-    echo "  (none)"
+    echo "(none)"
   else
     for node in "${trusted_nodes[@]}"; do
-      echo "  TRUSTED: $node"
+      echo "$node"
     done
   fi
 
