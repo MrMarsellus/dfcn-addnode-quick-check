@@ -35,6 +35,8 @@ node.example.com:8192
 
 If no port is provided, the script assumes the DeFCoN default port `8192`.
 
+DeFCoN Addnode Quick Checker is designed for iterative use: for best results, you should run multiple test rounds over time. Start with a larger candidate list, keep only the `TRUSTED:` nodes, and then re-run the script later (for example after a few hours or on the next day) using only the previously trusted nodes as input. Repeating this process across several runs helps filter out unstable or intermittently failing nodes and gradually converge on a smaller, more reliable trusted addnode set.
+
 ## Health check criteria
 
 The DeFCoN Addnode Quick Checker uses a strict set of health check thresholds to decide whether a candidate addnode is marked as TRUSTED or REJECTED. These parameters control how many times a node is tested, how much block-height lag is tolerated, and how conservative the ProTx-based heuristics are.
