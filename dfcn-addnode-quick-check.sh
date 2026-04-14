@@ -10,11 +10,11 @@ MAX_SECONDS=5
 # Sleep after addnode onetry before inspecting getpeerinfo
 PEER_SLEEP=3
 # How many test rounds per node
-TEST_ROUNDS=3
+TEST_ROUNDS=5
 # Minimum rounds that must pass for a node to be considered trusted
-MIN_SUCCESS_ROUNDS=2
+MIN_SUCCESS_ROUNDS=3
 # Allowed height difference between local and peer
-MAX_HEIGHT_DIFF=5
+MAX_HEIGHT_DIFF=10
 # Default DeFCoN masternode port
 DEFAULT_PORT="8192"
 
@@ -31,7 +31,7 @@ STRICT_LASTPAID_ZERO="1"
 
 # Maximum allowed age (seconds) of lastOutboundSuccessElapsed
 # (older values indicate potentially stale / unhealthy peers)
-MAX_OUTBOUND_SUCCESS_ELAPSED="21600"
+MAX_OUTBOUND_SUCCESS_ELAPSED="43200"
 
 # Minimum block age for revived masternodes:
 # nodes revived more recently than this many blocks are rejected.
